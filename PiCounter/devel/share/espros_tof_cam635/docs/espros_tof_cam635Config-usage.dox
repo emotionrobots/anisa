@@ -1,0 +1,43 @@
+\subsubsection usage Usage
+\verbatim
+<node name="tof_cam635_node" pkg="espros_tof_cam635" type="tof_cam635_node">
+  <param name="image_type" type="int" value="2" />
+  <param name="mode" type="int" value="0" />
+  <param name="frame_rate" type="double" value="30.0" />
+  <param name="start_stream" type="bool" value="True" />
+  <param name="trigger_single_shot" type="bool" value="False" />
+  <param name="hdr" type="int" value="0" />
+  <param name="automatic_integration_time" type="bool" value="True" />
+  <param name="integration_time_0" type="int" value="200" />
+  <param name="integration_time_1" type="int" value="0" />
+  <param name="integration_time_2" type="int" value="0" />
+  <param name="integration_time_3" type="int" value="0" />
+  <param name="integration_time_4" type="int" value="200" />
+  <param name="integration_time_5" type="int" value="0" />
+  <param name="integration_time_gray" type="int" value="0" />
+  <param name="modulation_frequency" type="int" value="1" />
+  <param name="temporal_filter_factor_WFOV" type="double" value="0.1" />
+  <param name="temporal_filter_threshold_WFOV" type="int" value="300" />
+  <param name="temporal_filter_factor_NFOV" type="double" value="0.1" />
+  <param name="temporal_filter_threshold_NFOV" type="int" value="300" />
+  <param name="spatial_average_filter" type="bool" value="False" />
+  <param name="spatial_median_filter" type="bool" value="False" />
+  <param name="min_amplitude_0" type="int" value="50" />
+  <param name="min_amplitude_1" type="int" value="100" />
+  <param name="min_amplitude_2" type="int" value="200" />
+  <param name="min_amplitude_3" type="int" value="500" />
+  <param name="min_amplitude_4" type="int" value="200" />
+  <param name="offset_distance" type="int" value="0" />
+  <param name="roi_left_x" type="int" value="0" />
+  <param name="roi_top_y" type="int" value="0" />
+  <param name="roi_right_x" type="int" value="159" />
+  <param name="roi_bottom_y" type="int" value="59" />
+  <param name="lensCenterOffsetX" type="int" value="0" />
+  <param name="lensCenterOffsetY" type="int" value="0" />
+  <param name="enable_cartesian" type="bool" value="True" />
+  <param name="enable_images" type="bool" value="True" />
+  <param name="enable_point_cloud" type="bool" value="True" />
+  <param name="enable_image_header" type="bool" value="True" />
+</node>
+\endverbatim
+
