@@ -25,7 +25,7 @@ import rospy
 import cv2
 import math
 import json 
-import datetime
+from datetime import datetime
 import queue
 import numpy as np
 import sensor_msgs.point_cloud2 as pc2 
@@ -38,8 +38,51 @@ from img_proc.cfg import img_procConfig
 import tf2_ros
 import tf2_py as tf2
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
+import paho.mqtt.client as mqtt
 
 node = None
+client = mqtt.Client()
+
+def on_connect(client, userdata, flags, rc):
+    client.subscribe("topic2")
+
+
+def on_message(client, userdata, msg):
+    print("Message received-> " + msg.topic + " " + str(msg.payload))
+    
+def getDateTime(now):
+    dt_string = now.strftime("%d/%m/%Y %H:%M%S")
+    return dt_string
+
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect("52.43.181.166")
+
+class Message:
+  def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
+    self.device = device
+    self.deviceid = deviceid
+    self.longitude = longitude
+    self.latitude = latitude
+    self.location = location
+    self.time = time
+    self.enter = enter
+    self.exit = exit
+    self.peopleinbuilding = peopleinbuilding
+
+  def dictStr(self):
+    d = {}
+    d["device"] = self.device
+    d["deviceid"] = self.deviceid
+    d["longitude"] = self.longitude
+    d["latitude"] = self.latitude
+    d["location"] = self.location
+    d["time"] = self.time
+    d["enter"] = self.enter
+    d["exit"] = self.exit
+    d["peopleinbuilding"] = self.peopleinbuilding
+    return json.dumps(d)
 
 #===========================================================================
 #  dynamic_reconfigure callback 
@@ -269,8 +312,7 @@ class ImgProcNode(object):
     if area > self.minBlobArea and length > self.minBlobPeri:
       contours.append(cnt)
     return contours
-    # NOTE: fixed learning rate stuff. adjust the way you subtract the masks
-    # and stuff based on li's code next. try new background subtractor algorithms
+  	
 
   #===================================================
   #
@@ -291,6 +333,11 @@ class ImgProcNode(object):
        cv2.imshow("binary", self.prepare(depthFgndMask, 4))
     if dimg is not None:
       cv2.imshow("foreground", self.prepare(depthFgnd, 4))
+    # MAKE SEPARATE METHOD FOR FORMATTING THE STRING IN THE RIGHT ORDER
+    # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
+    now = datetime.now()
+    m1 = Message("rpi4", 36, 455, 566, "School, Gym", getDateTime(now), 23, 32, 24)
+    client.publish("topic1", m1.dictStr())
     return
 
   #===================================================
