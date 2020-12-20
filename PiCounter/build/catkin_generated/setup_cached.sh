@@ -7,10 +7,4 @@
 # new environment variables
 
 # modified environment variables
-export CMAKE_PREFIX_PATH="/home/ubuntu/PiCounter/devel:$CMAKE_PREFIX_PATH"
-export LD_LIBRARY_PATH="/home/ubuntu/PiCounter/devel/lib:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="/home/ubuntu/PiCounter/devel/lib/pkgconfig:$PKG_CONFIG_PATH"
 export PWD='/home/ubuntu/PiCounter/build'
-export PYTHONPATH="/home/ubuntu/PiCounter/devel/lib/python3/dist-packages:$PYTHONPATH"
-export ROSLISP_PACKAGE_DIRECTORIES='/home/ubuntu/PiCounter/devel/share/common-lisp'
-export ROS_PACKAGE_PATH='/home/ubuntu/PiCounter/src:/opt/ros/noetic/share'

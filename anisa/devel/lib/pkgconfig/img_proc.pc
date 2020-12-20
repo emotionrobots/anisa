@@ -1,8 +1,0 @@
-prefix=/home/ubuntu/PiCounter/devel
-
-Name: img_proc
-Description: Description of img_proc
-Version: 0.0.0
-Cflags: -I/home/ubuntu/PiCounter/devel/include
-Libs: -L${prefix}/lib 
-Requires: dynamic_reconfigure rospy std_msgs

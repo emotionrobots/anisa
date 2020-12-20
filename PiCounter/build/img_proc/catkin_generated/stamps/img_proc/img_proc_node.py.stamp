@@ -25,7 +25,8 @@ import rospy
 import cv2
 import math
 import json 
-import datetime
+from datetime import datetime
+import queue
 import numpy as np
 import sensor_msgs.point_cloud2 as pc2 
 from sensor_msgs.msg import Image
@@ -37,8 +38,51 @@ from img_proc.cfg import img_procConfig
 import tf2_ros
 import tf2_py as tf2
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
+import paho.mqtt.client as mqtt
 
 node = None
+client = mqtt.Client()
+
+def on_connect(client, userdata, flags, rc):
+    client.subscribe("topic2")
+
+
+def on_message(client, userdata, msg):
+    print("Message received-> " + msg.topic + " " + str(msg.payload))
+    
+def getDateTime(now):
+    dt_string = now.strftime("%d/%m/%Y %H:%M%S")
+    return dt_string
+
+client.on_connect = on_connect
+client.on_message = on_message
+
+# client.connect("52.43.181.166")
+
+class Message:
+  def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
+    self.device = device
+    self.deviceid = deviceid
+    self.longitude = longitude
+    self.latitude = latitude
+    self.location = location
+    self.time = time
+    self.enter = enter
+    self.exit = exit
+    self.peopleinbuilding = peopleinbuilding
+
+  def dictStr(self):
+    d = {}
+    d["device"] = self.device
+    d["deviceid"] = self.deviceid
+    d["longitude"] = self.longitude
+    d["latitude"] = self.latitude
+    d["location"] = self.location
+    d["time"] = self.time
+    d["enter"] = self.enter
+    d["exit"] = self.exit
+    d["peopleinbuilding"] = self.peopleinbuilding
+    return json.dumps(d)
 
 #===========================================================================
 #  dynamic_reconfigure callback 
@@ -66,8 +110,7 @@ class ImgProcNode(object):
     self.camera['y'] = None
     self.camera['z'] = None
     self.camera['chip_id'] = None
-    self.camera['wafer_id'] = None 
-
+    self.camera['wafer_id'] = None
 
     # Setup transform listener 
     self.xform_buf = tf2_ros.Buffer()
@@ -78,10 +121,30 @@ class ImgProcNode(object):
     self.min_depth = 0
 
     # Morpho kernel
-    self.kernel = cv2.getStructuringElement(shape=cv2.MORPH_RECT, ksize=(3,3))
+    self.kernel = cv2.getStructuringElement(shape=cv2.MORPH_RECT, ksize=(7,7))
 
     # Support ROS message to CV image conversion 
     self.br = CvBridge()
+    
+    # Background subtraction algorithms
+    self.fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows = False)
+    
+    # Background mask
+    self.fgmask = None
+    self.dimg1 = None
+    
+    self.maxDepth = 6200
+    
+    # Background learning params
+    self.learningRateMax = .001
+    self.learningRateAlpha = .0001
+    
+    # previous frame blobs
+    self.frame1_blobs = []
+    
+    # Blob params
+    self.minBlobArea = 400
+    self.minBlobPeri = 100
 
     # Subscribe to camera data 
     rospy.Subscriber('/espros_tof_cam635/camera/image_raw1', Image, self.amp_callback)
@@ -104,7 +167,7 @@ class ImgProcNode(object):
   #===================================================
   #
   #  Extract X, Y, Z arrays from incoming point cloud 
-  #  message; sdjust to common global reference frame 
+  #  message; adjust to common global reference frame 
   # 
   #  Returns x array, y array and z array
   #
@@ -169,6 +232,17 @@ class ImgProcNode(object):
     self.getXYZArrays(msg)
     return
 
+  #===================================================
+  #
+  #  Get binary image 
+  #
+  #===================================================
+  def getBinaryImage(self, dimg):
+    if dimg is not None:
+    # try something smaller here, maybe 1500
+      dimg = cv2.compare(dimg, self.maxDepth, cv2.CMP_LT)
+      self.get_fgnd(dimg)
+    return self.fgmask
 
   #===================================================
   #
@@ -177,7 +251,7 @@ class ImgProcNode(object):
   #
   #===================================================
   def update_contour(self, bimg):
-    _,contour,_ = cv2.findContours(bimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour, hierarchy = cv2.findContours(bimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     return contour
 
   #===================================================
@@ -193,12 +267,83 @@ class ImgProcNode(object):
   #===================================================
   #
   #===================================================
-  def get_fgnd(self, dimg, max_depth):
-    bimg = cv2.compare(dimg, max_depth, cv2.CMP_LT)
-    bimg8 = self.morph_clean(bimg)
-    return bimg8
+  def get_fgnd(self, dimg):
+    if self.fgmask is None:
+    	learningRate = 0.001
+    	self.dimg1 = dimg
+    else:
+    	abs_diff = np.sum(cv2.absdiff(self.dimg1, dimg))/255.0
+    	learningRate = self.computeLearningRate(abs_diff)
+    	self.dimg1 = dimg
+    self.fgmask = self.fgbg.apply(dimg, learningRate)
+    self.fgmask = cv2.compare(self.fgmask, 0, cv2.CMP_GT)
+    self.fgmask = self.morph_clean(self.fgmask)
+    return 
+    
+  def computeLearningRate(self, diff):
+    lr = 0
+    alpha = self.learningRateAlpha
+    lrMax = self.learningRateMax
+    if diff < 96:
+    	eta = diff / 9600.0
+    	lr = alpha / (eta + alpha/lrMax)
+    return lr
 
-
+  #===================================================
+  #  Return Laplacian edge
+  #
+  #===================================================
+  def laplaceEdge(self, dimg, threshold):
+    edge = None
+    if dimg is not None:
+      blur = cv2.GaussianBlur(dimg, (5,5), sigmaX=0)
+      laplacian = np.abs(cv2.Laplacian(blur, cv2.CV_32F, ksize=3))
+      edge = cv2.compare(laplacian, threshold, cv2.CMP_GT)
+    return edge
+    
+  #===================================================
+  #  Get current contour
+  #===================================================
+  def getBlobs(self, depthFgnd):
+    contourList = self.update_contour(depthFgnd)
+    contours = []
+    for cnt in contourList:
+      area = cv2.contourArea(cnt)
+      length = cv2.arcLength(cnt, True)
+      if area > self.minBlobArea and length > self.minBlobPeri:
+        contours.append(cnt)
+        print(area, length)
+    return contours
+  
+  #===================================================
+  #  Distance score based on normalized distanceScore
+  #===================================================	
+  def distanceScore(a, b):
+    # dividing by the actual size of frame normalizes the value (between 0 and 1)
+    dx = (a.x - b.x) / 160.0
+    dy (a.y - b.y) / 60.0
+    dist = sqrt(dx*dx + dy*dy)
+    return dist
+    
+  #===================================================
+  #  Create list of all possible matches (relationships)
+  #===================================================
+  def findRelationships(frame1_blobs, frame2_blobs):
+    relationship = []
+    for i in range(len(frame1_blobs)):
+      for j in range(len(frame2_blobs)):
+        blob_a = frame1_blobs[i]
+        blob_b = frame2_blobs[j]
+        # hu moment score, how similar the shape is to the other
+        # lower number is better
+        hm_score = cv2.matchShapes(blob_a, blob_b, 1, 0.0)
+        # write method to find the center of the blobs !!
+        dist_score = distanceScore(center(blob_a), center(blob_b))
+        # find out what alpha is!!!
+        score = alpha*h,_score + (1-alpha)*dist_score
+        relationship.append((i,j,score))
+    return relationship
+  
   #===================================================
   #
   #  Periodic call to publish data 
@@ -207,11 +352,41 @@ class ImgProcNode(object):
   def periodic(self):
     dimg = self.camera['depth']
     aimg = self.camera['amp']
+    depthFgndMask = self.getBinaryImage(dimg)
+    laplace = self.laplaceEdge(dimg, 200)
+    depthFgnd = cv2.bitwise_and(dimg, dimg, mask = depthFgndMask)
     if dimg is not None:
       cv2.imshow("depth", self.prepare(dimg, 4))
     if aimg is not None:
       cv2.imshow("amplitude", self.prepare(aimg, 4))
-
+    if depthFgndMask is not None:
+       cv2.imshow("binary", self.prepare(depthFgndMask, 4))
+    if dimg is not None:
+      cv2.imshow("foreground", self.prepare(depthFgnd, 4))
+      
+    # finding number of valid blobs
+    #if depthFgndMask is not None:
+     # if self.frame1_blobs is None:
+       # self.frame1_blobs = self.getBlobs(depthFgndMask)
+     # else:
+    #    frame2_blobs = self.getBlobs(depthFgndMask)
+      
+    # plan for finding blobs:
+    # 1. iterate through blobs, find centers of each (write this method)
+    # 2. assign each pairing of centers a distance score (distanceScore)
+    # 3. store this result in order to compare from list of blobs of next frame
+    # 4. create list of all possible matches with blob #'s and score (findRelationships)
+    # 5. find best match given possible matches (findBestMatch)
+    # 6. remove relationships involving best match candidates (removeRelationship)
+    # 7. match (find all possible relationships [findRelationships], [findBestMatch], 
+    #    [removeRelationship], repeat until nothing in list
+    
+    # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
+    # don't need to send messages all the time; set people in and people out as class
+    # variables, only send message when this variable changes 
+    now = datetime.now()
+    m1 = Message("rpi4", 36, 455, 566, "School, Gym", getDateTime(now), 23, 32, 24)
+    # client.publish("topic1", m1.dictStr())
     return
 
   #===================================================
@@ -240,3 +415,4 @@ def main(argv):
 
 if __name__=='__main__':
   main(sys.argv[1:])    
+  #

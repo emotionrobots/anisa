@@ -44,7 +44,7 @@ node = None
 client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
-    client.subscribe("topic2")
+    client.subscribe("topic1")
 
 
 def on_message(client, userdata, msg):
@@ -57,7 +57,8 @@ def getDateTime(now):
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect("52.43.181.166")
+# uncomment this line!!!
+# client.connect("52.43.181.166")
 
 class Message:
   def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
@@ -121,28 +122,44 @@ class ImgProcNode(object):
     self.min_depth = 0
 
     # Morpho kernel
-    self.kernel = cv2.getStructuringElement(shape=cv2.MORPH_RECT, ksize=(3,3))
+    self.kernel = cv2.getStructuringElement(shape=cv2.MORPH_RECT, ksize=(8,8))
 
     # Support ROS message to CV image conversion 
     self.br = CvBridge()
     
     # Background subtraction algorithms
     self.fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows = False)
-    # self.fgbg = cv2.createBackgroundSubtractorKNN(detectShadows = False)
     
     # Background mask
     self.fgmask = None
     self.dimg1 = None
     
-    self.maxDepth = 5000
+    self.maxDepth = 6200
     
     # Background learning params
     self.learningRateMax = .001
     self.learningRateAlpha = .0001
     
+    # previous frame blobs
+    self.frame1_blobs = []
+    
     # Blob params
-    self.minBlobArea = 0
-    self.minBlobPeri = 0
+    self.minBlobArea = 400
+    self.minBlobPeri = 100
+    
+    # For weighting the shape / location of blob tracking
+    self.alpha = .5
+    
+    # Matched blobs (number of valid blobs)
+    self.matchedBlobs = []
+    
+    # Enter / Exit paramaters
+    self.entering = 10
+    self.exiting = 150
+    self.error = 10
+    
+    # total number of people who have entered
+    self.totalEntered = 0
 
     # Subscribe to camera data 
     rospy.Subscriber('/espros_tof_cam635/camera/image_raw1', Image, self.amp_callback)
@@ -152,10 +169,8 @@ class ImgProcNode(object):
     return
 
   #===================================================
-  # 
   #  Extract amplitude or depth array from incoming
   #  message
-  #
   #===================================================
   def getArray(self, msg):
     a = self.br.imgmsg_to_cv2(msg, desired_encoding='mono16')
@@ -163,13 +178,11 @@ class ImgProcNode(object):
     return a 
 
   #===================================================
-  #
   #  Extract X, Y, Z arrays from incoming point cloud 
   #  message; adjust to common global reference frame 
   # 
   #  Returns x array, y array and z array
-  #
-  #===================================================
+  #===============s====================================
   def getXYZArrays(self, msg):
     gen = pc2.read_points(msg, field_names = ('x','y','z'), skip_nans=False)
     points = np.array([p for p in gen]) # p is (x,y,z) tuple
@@ -180,9 +193,7 @@ class ImgProcNode(object):
     return 
 
   #===================================================
-  #
   # Scale image 
-  #
   #===================================================
   def scaleImage(self, img, factor):
     w = int(img.shape[1] * factor)
@@ -192,10 +203,8 @@ class ImgProcNode(object):
     return newImg
 
   #===================================================
-  #
   # Prepare array for display by scaling and 
   # normalizing, and filtering
-  #
   #===================================================
   def prepare(self, img, scale):
     img = self.scaleImage(img, scale)
@@ -204,52 +213,52 @@ class ImgProcNode(object):
     return img
 
   #===================================================
-  #
   #  Process camera amp image
-  #
   #===================================================
   def amp_callback(self, msg):
     self.camera['amp'] = self.getArray(msg)  
     return
 
   #===================================================
-  #
   #  Process camera depth image
-  #
   #===================================================
   def depth_callback(self, msg):
     self.camera['depth'] = self.getArray(msg)
     return
 
   #===================================================
-  #
   #  Process camera point cloud 
-  #
   #===================================================
   def pc_callback(self, msg):
     self.getXYZArrays(msg)
     return
 
   #===================================================
-  #
   #  Get binary image 
-  #
   #===================================================
   def getBinaryImage(self, dimg):
     if dimg is not None:
-    # try something smaller here, maybe 1500
       dimg = cv2.compare(dimg, self.maxDepth, cv2.CMP_LT)
+      
+      # temporary: finding greatest value in dimg after the 
+      # depth cutoff. will use this to find suitable 
+      # cutoff for z
+      
       self.get_fgnd(dimg)
     return self.fgmask
+    
+  def getZCutoff(self, zpoints):
+    if zpoints is not None:
+      # need something between 5 and 10
+      zpoints = cv2.compare(zpoints, 5, cv2.CMP_LT)
+    return zpoints  
 
   #===================================================
-  #
   # Get contour of blob
   #   return contour and hierarchy
-  #
   #===================================================
   def update_contour(self, bimg):
-    _,contour,_ = cv2.findContours(bimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour, hierarchy = cv2.findContours(bimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     return contour
 
   #===================================================
@@ -263,7 +272,7 @@ class ImgProcNode(object):
     return out
  
   #===================================================
-  #
+  #  Find foreground mask
   #===================================================
   def get_fgnd(self, dimg):
     if self.fgmask is None:
@@ -278,6 +287,9 @@ class ImgProcNode(object):
     self.fgmask = self.morph_clean(self.fgmask)
     return 
     
+  #===================================================
+  #  Compute learningRate based on movement
+  #===================================================
   def computeLearningRate(self, diff):
     lr = 0
     alpha = self.learningRateAlpha
@@ -285,12 +297,10 @@ class ImgProcNode(object):
     if diff < 96:
     	eta = diff / 9600.0
     	lr = alpha / (eta + alpha/lrMax)
-    	print (lr)
     return lr
 
   #===================================================
   #  Return Laplacian edge
-  #
   #===================================================
   def laplaceEdge(self, dimg, threshold):
     edge = None
@@ -301,49 +311,199 @@ class ImgProcNode(object):
     return edge
     
   #===================================================
-  #
   #  Get current contour
   #===================================================
-  def getBlobs(self, depthFgndMask):
-    contourList = self.update_contour(depthFgndMask)
-    contour = []
-    area = cv2.contourArea(cnt)
-      # change blob params
-    if area > self.minBlobArea and length > self.minBlobPeri:
-      contours.append(cnt)
+  def getBlobs(self, depthFgnd):
+    contourList = self.update_contour(depthFgnd)
+    contours = []
+    for cnt in contourList:
+      area = cv2.contourArea(cnt)
+      length = cv2.arcLength(cnt, True)
+      if area > self.minBlobArea and length > self.minBlobPeri:
+        contours.append(cnt)
+        print(area, length)
     return contours
-  	
-
+  
   #===================================================
+  #  Distance score based on normalized distanceScore
+  #===================================================	
+  def distanceScore(self, ax, ay, bx, by):
+    # dividing by the actual size of frame normalizes the value (between 0 and 1)
+    dx = (ax - bx) / 160.0
+    dy = (ay - by) / 60.0
+    dist = math.sqrt(dx*dx + dy*dy)
+    return dist
+  
+  #===================================================
+  #  Finding x and y of centroid
+  #===================================================  
+  def findCenter(self, blob):
+    m = cv2.moments(blob)
+    if m['m00'] != 0:
+      bx = int(m['m10']/m['m00'])
+      by = int(m['m01']/m['m00'])
+    else:
+      print("illegitimate blob")
+      bx = 0
+      by = 0
+    return bx, by
+    
+  #===================================================
+  #  Create list of all possible matches (relationships)
+  #  along with score based on similarity of shape and
+  #  distance between centers
+  #===================================================
+  def findRelationships(self, frame1_blobs, frame2_blobs):
+    relationship = []
+    alpha = self.alpha
+    for i in range(len(frame1_blobs)):
+      for j in range(len(frame2_blobs)):
+        blob_a = frame1_blobs[i]
+        blob_b = frame2_blobs[j]
+        # hu moment score, how similar the shape is to the other
+        # lower number is better
+        hm_score = cv2.matchShapes(blob_a, blob_b, 1, 0.0)
+        ax, ay = self.findCenter(blob_a)
+        bx, by = self.findCenter(blob_b)
+        dist_score = self.distanceScore(ax, ay, bx, by)
+        score = alpha*hm_score + (1-alpha)*dist_score
+        relationship.append((i,j,score))
+    return relationship
+    
+  #===================================================
+  #  Given a set of potential matches (relationship),
+  #  find the best match
+  #===================================================
+  def findBestMatch(self, relationship):
+    blob_a = -1
+    blob_b = -1
+    minScore = 0
+    for k in range(len(relationship)):
+      (i, j, score) = relationship[k]
+      if k == 0:
+        minScore = score
+        blob_a = i
+        blob_b = j
+      else:
+        # checking if new score is lower than minScore,
+        # meaning a more accurate match
+        if score < minScore:
+          minScore = score
+          blob_a = i
+          blob_b = j
+    return blob_a, blob_b, minScore
+    
+  #===================================================
+  #  Remove any relationships involving blob_a or blob_b
+  #===================================================
+  def removeRelationships(self, blob_a, blob_b, relationship):
+    new_relationship = []
+    for k in range(len(relationship)):
+      (i, j, score) = relationship[k]
+      if i != blob_a and j != blob_b:
+        new_relationship.append((i, j, score))
+    return new_relationship
+    
+  #===================================================
+  #  Find the matches between blobs in frame 1 and 2 by:
   #
+  #    1. Find all possible matches and their scores
+  # 
+  #    2. Find the best match and remove the matched
+  #       pair of blobs from the list for further consideration
+  # 
+  #    3. Repeat 2 until nothing left on the list to consider
+  #
+  #  Function returns all the matches and the remaining
+  #  unmatched relationships
+  #===================================================
+  def match(self, frame1_blobs, frame2_blobs):
+    matches = []
+    remains = self.findRelationships(frame1_blobs, frame2_blobs)
+    while len(remains) != 0:
+      (blob_a, blob_b, score) = self.findBestMatch(remains)
+      if blob_a != -1:
+        matches.append((blob_a, blob_b, score))
+        remains = self.removeRelationships(blob_a, blob_b, remains)
+    return matches, remains
+    
+  #===================================================
   #  Periodic call to publish data 
-  #
+  #===================================================
+  def enterOrExit(self, matches):
+    peopleEntering = 0
+    peopleExiting = 0
+    print(len(matches))
+    for k in range(len(matches)):
+      (a, b, score) = matches[k]
+      ax, ay = self.findCenter(b)
+      if abs(ay - self.entering) <= self.error:
+        peopleEntering += 1
+      elif abs(ay - self.exiting) <= self.error:
+        peopleExiting += 1
+    print(peopleEntering, peopleExiting)
+    return peopleEntering, peopleExiting    
+      
+  
+  #===================================================
+  #  Periodic call to publish data 
   #===================================================
   def periodic(self):
     dimg = self.camera['depth']
     aimg = self.camera['amp']
+    zpoints = self.camera['z']
+    remains = []
+    changeInPeople = False
+    
+    
     depthFgndMask = self.getBinaryImage(dimg)
-    laplace = self.laplaceEdge(dimg, 200)
     depthFgnd = cv2.bitwise_and(dimg, dimg, mask = depthFgndMask)
+   
     if dimg is not None:
       cv2.imshow("depth", self.prepare(dimg, 4))
     if aimg is not None:
       cv2.imshow("amplitude", self.prepare(aimg, 4))
-    if depthFgndMask is not None:
-       cv2.imshow("binary", self.prepare(depthFgndMask, 4))
+    if zpoints is not None:
+      cv2.imshow("zpoints", self.prepare(zpoints, 4))
+      zcutoff = self.getZCutoff(zpoints)
+      cv2.imshow("z cutoff", self.prepare(zcutoff, 4))
+      
     if dimg is not None:
       cv2.imshow("foreground", self.prepare(depthFgnd, 4))
-    # MAKE SEPARATE METHOD FOR FORMATTING THE STRING IN THE RIGHT ORDER
+      
+      blobs = self.getBlobs(depthFgndMask)
+      
+      # the first frame
+      if self.frame1_blobs is None:
+        self.frame1_blobs = blobs
+        
+      # if there are any blobs in the frame
+      elif len(blobs) != 0:
+        self.matchedBlobs, remains = self.match(blobs, self.frame1_blobs)
+        self.frame1_blobs = blobs
+        
+      # right after there is a change in the number of blobs
+      elif len(self.matchedBlobs) != 0:
+        peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs)
+        # update total number of people who have entered
+        self.totalEntered += peopleEntered
+        self.totalEntered -= peopleExited
+        self.matchedBlobs = []
+        changeInPeople = True
+        self.frame1_blobs = blobs
+      else:
+        self.frame1_blobs = blobs
+    
     # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
-    now = datetime.now()
-    m1 = Message("rpi4", 36, 455, 566, "School, Gym", getDateTime(now), 23, 32, 24)
-    client.publish("topic1", m1.dictStr())
+    if changeInPeople:
+      now = datetime.now()
+      m1 = Message("rpi4", 36, 455, 566, "School, Gym", getDateTime(now), peopleEntered, 
+      		     peopleExited, 24)
+      client.publish("topic1", m1.dictStr())
     return
 
   #===================================================
-  #
   #  Start processing 
-  #
   #===================================================
   def start(self):
     while not rospy.is_shutdown():
@@ -366,4 +526,3 @@ def main(argv):
 
 if __name__=='__main__':
   main(sys.argv[1:])    
-  #

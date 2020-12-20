@@ -602,7 +602,7 @@ espros_tof_cam635Config::GroupDescription<espros_tof_cam635Config::DEFAULT, espr
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
       __max__.automatic_integration_time = 1;
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
-      __default__.automatic_integration_time = 1;
+      __default__.automatic_integration_time = 0;
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
       Default.abstract_parameters.push_back(espros_tof_cam635Config::AbstractParamDescriptionConstPtr(new espros_tof_cam635Config::ParamDescription<bool>("automatic_integration_time", "bool", 0, "Automatic integration time", "", &espros_tof_cam635Config::automatic_integration_time)));
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
@@ -612,7 +612,7 @@ espros_tof_cam635Config::GroupDescription<espros_tof_cam635Config::DEFAULT, espr
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
       __max__.integration_time_0 = 1000;
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
-      __default__.integration_time_0 = 200;
+      __default__.integration_time_0 = 600;
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"
       Default.abstract_parameters.push_back(espros_tof_cam635Config::AbstractParamDescriptionConstPtr(new espros_tof_cam635Config::ParamDescription<int>("integration_time_0", "int", 0, "Integration time TOF for beam A [uS]", "", &espros_tof_cam635Config::integration_time_0)));
 //#line 291 "/opt/ros/noetic/lib/python3/dist-packages/dynamic_reconfigure/parameter_generator_catkin.py"

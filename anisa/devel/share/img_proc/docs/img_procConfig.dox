@@ -1,6 +1,0 @@
-\subsubsection parameters ROS parameters
-
-Reads and maintains the following parameters on the ROS server
-
-- \b "~version" : \b [int] Version number min: 1, default: 0, max: 10000
-
