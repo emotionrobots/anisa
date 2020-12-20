@@ -1,0 +1,7 @@
+\subsubsection usage Usage
+\verbatim
+<node name="img_proc" pkg="img_proc" type="img_proc">
+  <param name="version" type="int" value="0" />
+</node>
+\endverbatim
+

@@ -1,0 +1,42 @@
+\subsubsection parameters ROS parameters
+
+Reads and maintains the following parameters on the ROS server
+
+- \b "~image_type" : \b [int] Image type min: 0, default: 2, max: 3
+- \b "~mode" : \b [int] Operating mode min: 0, default: 0, max: 3
+- \b "~frame_rate" : \b [double] Frame rate [Hz] min: 0.0, default: 30.0, max: 50.0
+- \b "~start_stream" : \b [bool] Start / Stop image acquisition streaming min: False, default: True, max: True
+- \b "~trigger_single_shot" : \b [bool] Single image acquisition min: False, default: False, max: True
+- \b "~hdr" : \b [int] HDR mode min: 0, default: 0, max: 2
+- \b "~automatic_integration_time" : \b [bool] Automatic integration time min: False, default: True, max: True
+- \b "~integration_time_0" : \b [int] Integration time TOF for beam A [uS] min: 0, default: 200, max: 1000
+- \b "~integration_time_1" : \b [int] Integration time TOF for beam A [uS] min: 0, default: 0, max: 1000
+- \b "~integration_time_2" : \b [int] Integration time TOF for beam A [uS] min: 0, default: 0, max: 1000
+- \b "~integration_time_3" : \b [int] Integration time TOF for beam A [uS] min: 0, default: 0, max: 1000
+- \b "~integration_time_4" : \b [int] Integration time TOF for beam B [uS] min: 0, default: 200, max: 1000
+- \b "~integration_time_5" : \b [int] Integration time TOF for beam B [uS] min: 0, default: 0, max: 1000
+- \b "~integration_time_gray" : \b [int] Integration time Grayscale [uS] min: 0, default: 0, max: 50000
+- \b "~modulation_frequency" : \b [int] Modulation frequency 0 - 10MHz, 1 - 20MHz min: 0, default: 1, max: 1
+- \b "~temporal_filter_factor_WFOV" : \b [double] Kalman all filter gain coefficient min: 0.0, default: 0.1, max: 1.0
+- \b "~temporal_filter_threshold_WFOV" : \b [int] Kalman all filter threshold [mm] min: 0, default: 300, max: 10000
+- \b "~temporal_filter_factor_NFOV" : \b [double] Kalman spot filter gain coefficient min: 0.0, default: 0.1, max: 1.0
+- \b "~temporal_filter_threshold_NFOV" : \b [int] Kalman spot filter threshold [mm] min: 0, default: 300, max: 10000
+- \b "~spatial_average_filter" : \b [bool] Spatial average filter min: False, default: False, max: True
+- \b "~spatial_median_filter" : \b [bool] Median filter min: False, default: False, max: True
+- \b "~min_amplitude_0" : \b [int] threshold minAmplitude 0 beam A LSB min: 0, default: 50, max: 2047
+- \b "~min_amplitude_1" : \b [int] threshold minAmplitude 1 beam A LSB min: 0, default: 100, max: 2047
+- \b "~min_amplitude_2" : \b [int] threshold minAmplitude 2 beam A LSB min: 0, default: 200, max: 2047
+- \b "~min_amplitude_3" : \b [int] threshold minAmplitude 3 beam A LSB min: 0, default: 500, max: 2047
+- \b "~min_amplitude_4" : \b [int] threshold minAmplitude 4 beam B LSB min: 0, default: 200, max: 2047
+- \b "~offset_distance" : \b [int] distance offset mm min: -15000, default: 0, max: 15000
+- \b "~roi_left_x" : \b [int] ROI left X min: 0, default: 0, max: 153
+- \b "~roi_top_y" : \b [int] ROI top Y min: 0, default: 0, max: 57
+- \b "~roi_right_x" : \b [int] ROI right X min: 5, default: 159, max: 159
+- \b "~roi_bottom_y" : \b [int] ROI bottom Y min: 1, default: 59, max: 59
+- \b "~lensCenterOffsetX" : \b [int] Lens Optical axis offset releative sensor center X direction [pix] min: -100, default: 0, max: 100
+- \b "~lensCenterOffsetY" : \b [int] Lens Optical axis offset releative sensor center Y direction [pix] min: -100, default: 0, max: 100
+- \b "~enable_cartesian" : \b [bool] Cartesian transformation min: False, default: True, max: True
+- \b "~enable_images" : \b [bool] Enable Images min: False, default: True, max: True
+- \b "~enable_point_cloud" : \b [bool] Enable point cloud min: False, default: True, max: True
+- \b "~enable_image_header" : \b [bool] Enable image header min: False, default: True, max: True
+

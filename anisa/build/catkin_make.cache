@@ -1,0 +1,2 @@
+espros_tof_cam635:img_proc
+-DCATKIN_DEVEL_PREFIX=/home/ubuntu/PiCounter/devel -DCMAKE_INSTALL_PREFIX=/home/ubuntu/PiCounter/install -G Unix Makefiles
