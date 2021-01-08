@@ -58,7 +58,7 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 # uncomment this line!!!
-# client.connect("52.43.181.166")
+client.connect("52.43.181.166")
 
 class Message:
   def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
@@ -156,7 +156,7 @@ class ImgProcNode(object):
     # Enter / Exit paramaters
     self.entering = 10
     self.exiting = 150
-    self.error = 10
+    self.error = 20
     
     # total number of people who have entered
     self.totalEntered = 0
@@ -321,7 +321,7 @@ class ImgProcNode(object):
       length = cv2.arcLength(cnt, True)
       if area > self.minBlobArea and length > self.minBlobPeri:
         contours.append(cnt)
-        print(area, length)
+        # print(area, length)
     return contours
   
   #===================================================
@@ -430,13 +430,15 @@ class ImgProcNode(object):
   #===================================================
   #  Periodic call to publish data 
   #===================================================
-  def enterOrExit(self, matches):
+  def enterOrExit(self, matches, frame1_blobs):
     peopleEntering = 0
     peopleExiting = 0
     print(len(matches))
     for k in range(len(matches)):
       (a, b, score) = matches[k]
-      ax, ay = self.findCenter(b)
+      blob_b = frame1_blobs[b]
+      ax, ay = self.findCenter(blob_b)
+      print(ax, ay)
       if abs(ay - self.entering) <= self.error:
         peopleEntering += 1
       elif abs(ay - self.exiting) <= self.error:
@@ -484,7 +486,7 @@ class ImgProcNode(object):
         
       # right after there is a change in the number of blobs
       elif len(self.matchedBlobs) != 0:
-        peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs)
+        peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs, self.frame1_blobs)
         # update total number of people who have entered
         self.totalEntered += peopleEntered
         self.totalEntered -= peopleExited
@@ -497,7 +499,7 @@ class ImgProcNode(object):
     # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
     if changeInPeople:
       now = datetime.now()
-      m1 = Message("rpi4", 36, 455, 566, "School, Gym", getDateTime(now), peopleEntered, 
+      m1 = Message("rpi4", 30, 455, 566, "School, Gym", getDateTime(now), peopleEntered, 
       		     peopleExited, 24)
       client.publish("topic1", m1.dictStr())
     return
