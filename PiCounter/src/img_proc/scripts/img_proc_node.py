@@ -58,7 +58,7 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 # uncomment this line!!!
-client.connect("52.43.181.166")
+# client.connect("52.43.181.166")
 
 class Message:
   def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
@@ -155,8 +155,8 @@ class ImgProcNode(object):
     
     # Enter / Exit paramaters
     self.entering = 10
-    self.exiting = 150
-    self.error = 20
+    self.exiting = 50
+    self.error = 15
     
     # total number of people who have entered
     self.totalEntered = 0
@@ -433,17 +433,17 @@ class ImgProcNode(object):
   def enterOrExit(self, matches, frame1_blobs):
     peopleEntering = 0
     peopleExiting = 0
-    print(len(matches))
+    
     for k in range(len(matches)):
       (a, b, score) = matches[k]
-      blob_b = frame1_blobs[b]
-      ax, ay = self.findCenter(blob_b)
-      print(ax, ay)
+      blob_a = frame1_blobs[a]
+      ax, ay = self.findCenter(blob_a)
+      print('blob center', ax, ay)
       if abs(ay - self.entering) <= self.error:
         peopleEntering += 1
       elif abs(ay - self.exiting) <= self.error:
         peopleExiting += 1
-    print(peopleEntering, peopleExiting)
+    print('people entering', peopleEntering, 'people exiting', peopleExiting)
     return peopleEntering, peopleExiting    
       
   
@@ -465,10 +465,6 @@ class ImgProcNode(object):
       cv2.imshow("depth", self.prepare(dimg, 4))
     if aimg is not None:
       cv2.imshow("amplitude", self.prepare(aimg, 4))
-    if zpoints is not None:
-      cv2.imshow("zpoints", self.prepare(zpoints, 4))
-      zcutoff = self.getZCutoff(zpoints)
-      cv2.imshow("z cutoff", self.prepare(zcutoff, 4))
       
     if dimg is not None:
       cv2.imshow("foreground", self.prepare(depthFgnd, 4))
@@ -482,10 +478,21 @@ class ImgProcNode(object):
       # if there are any blobs in the frame
       elif len(blobs) != 0:
         self.matchedBlobs, remains = self.match(blobs, self.frame1_blobs)
-        self.frame1_blobs = blobs
         
-      # right after there is a change in the number of blobs
-      elif len(self.matchedBlobs) != 0:
+        # once there are fewer blobs currently than there were before
+        # meaning a blob has left the frame
+        if len(self.frame1_blobs) > len(blobs):
+          peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs, self.frame1_blobs)
+          # update total number of people who have entered
+          self.totalEntered += peopleEntered
+          self.totalEntered -= peopleExited
+          self.matchedBlobs = []
+          changeInPeople = True
+          
+        self.frame1_blobs = blobs
+      
+      # if there are currently no blobs in frame and there were blobs before    
+      elif len(self.frame1_blobs) > len(blobs):
         peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs, self.frame1_blobs)
         # update total number of people who have entered
         self.totalEntered += peopleEntered
@@ -493,8 +500,12 @@ class ImgProcNode(object):
         self.matchedBlobs = []
         changeInPeople = True
         self.frame1_blobs = blobs
+          
       else:
-        self.frame1_blobs = blobs
+        self.frame1_blobs = blobs 
+        self.matchedBlobs = blobs
+        
+         
     
     # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
     if changeInPeople:
