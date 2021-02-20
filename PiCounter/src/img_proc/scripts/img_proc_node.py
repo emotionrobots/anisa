@@ -39,6 +39,7 @@ import tf2_ros
 import tf2_py as tf2
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 import paho.mqtt.client as mqtt
+from BlobTracker import BlobTracker
 
 node = None
 client = mqtt.Client()
@@ -58,7 +59,7 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 # uncomment this line!!!
-# client.connect("52.43.181.166")
+# client.connect("18.237.68.217")
 
 class Message:
   def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
@@ -160,6 +161,14 @@ class ImgProcNode(object):
     
     # total number of people who have entered
     self.totalEntered = 0
+    
+    # blob tracker
+    self.tracker = BlobTracker()
+    
+    self.timer = None
+    self.totalFrames = 0
+    self.done = False
+    self.difference = 0
 
     # Subscribe to camera data 
     rospy.Subscriber('/espros_tof_cam635/camera/image_raw1', Image, self.amp_callback)
@@ -430,21 +439,19 @@ class ImgProcNode(object):
   #===================================================
   #  Periodic call to publish data 
   #===================================================
-  def enterOrExit(self, matches, frame1_blobs):
+  def enterOrExit(self, unmatched_tracked):
     peopleEntering = 0
     peopleExiting = 0
     
-    for k in range(len(matches)):
-      (a, b, score) = matches[k]
-      blob_a = frame1_blobs[a]
-      ax, ay = self.findCenter(blob_a)
-      print('blob center', ax, ay)
-      if abs(ay - self.entering) <= self.error:
+    for (i, blob) in unmatched_tracked:
+     x, y = self.findCenter(blob)
+     print('blob center', x, y)
+     if abs(y - self.entering) <= self.error:
         peopleEntering += 1
-      elif abs(ay - self.exiting) <= self.error:
+     elif abs(y - self.exiting) <= self.error:
         peopleExiting += 1
     print('people entering', peopleEntering, 'people exiting', peopleExiting)
-    return peopleEntering, peopleExiting    
+    return peopleEntering, peopleExiting
       
   
   #===================================================
@@ -460,6 +467,23 @@ class ImgProcNode(object):
     
     depthFgndMask = self.getBinaryImage(dimg)
     depthFgnd = cv2.bitwise_and(dimg, dimg, mask = depthFgndMask)
+    
+    '''if self.totalFrames ==0 and not self.done:
+      self.timer = datetime.now()
+      self.totalFrames += 1
+      print(self.totalFrames)
+    elif self.done:
+      print(self.difference)
+    elif self.totalFrames == 100:
+      now = datetime.now()
+      self.difference = now - self.timer
+      self.done = True
+      print(self.done)
+    
+    else:
+      self.totalFrames += 1
+      print(self.totalFrames)'''
+      
    
     if dimg is not None:
       cv2.imshow("depth", self.prepare(dimg, 4))
@@ -471,45 +495,43 @@ class ImgProcNode(object):
       
       blobs = self.getBlobs(depthFgndMask)
       
-      # the first frame
-      if self.frame1_blobs is None:
-        self.frame1_blobs = blobs
-        
-      # if there are any blobs in the frame
-      elif len(blobs) != 0:
-        self.matchedBlobs, remains = self.match(blobs, self.frame1_blobs)
-        
-        # once there are fewer blobs currently than there were before
-        # meaning a blob has left the frame
-        if len(self.frame1_blobs) > len(blobs):
-          peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs, self.frame1_blobs)
-          # update total number of people who have entered
-          self.totalEntered += peopleEntered
-          self.totalEntered -= peopleExited
-          self.matchedBlobs = []
-          changeInPeople = True
-          
-        self.frame1_blobs = blobs
+      self.tracker.cartNormal = 3.0 
+      self.tracker.alpha = 0.5  # dial go between shape vs dist matching   
+
+      ximg = self.camera['x']
+      yimg = self.camera['y']
+      zimg = self.camera['z']
+      # Pass current ximg, yimg, zimg to tracker
+      self.tracker.setPointCloud(ximg, yimg, zimg)
+
+      # Update tracker
+      self.tracker.update(blobs)
       
-      # if there are currently no blobs in frame and there were blobs before    
-      elif len(self.frame1_blobs) > len(blobs):
-        peopleEntered, peopleExited = self.enterOrExit(self.matchedBlobs, self.frame1_blobs)
-        # update total number of people who have entered
-        self.totalEntered += peopleEntered
-        self.totalEntered -= peopleExited
-        self.matchedBlobs = []
-        changeInPeople = True
-        self.frame1_blobs = blobs
-          
-      else:
-        self.frame1_blobs = blobs 
-        self.matchedBlobs = blobs
-        
-         
+      # Updated result is in tracker.tracked, which is an array of deque
+      for i in range(len(self.tracker.tracked)):
+        if len(self.tracker.tracked[i]) > 0:
+          # Get the deque
+          q = self.tracker.tracked[i]
+          x = -1
+          y = -1
+          # draw trail
+          for j in q:
+            if x > -1 and y > -1:
+              cv2.line(display, self.findCenter(j), (x, y), (0,0,255), 1)
+            x, y = self.findCenter(j)
     
-    # device, deviceid, longtitude, latitude, location, time, enter, exit, people in building
-    if changeInPeople:
+    if len(self.tracker.unmatched_tracked) > 0:
+      print('number of blobs tracked', len(self.tracker.unmatched_tracked))
+      for j in  tracker.unmatched_tracked:
+        if len(j) ==1:
+          print(self.findCenter(j))
+        if len(j) ==2:
+          a, b = j
+          print(self.findCenter(a))
+          print(self.findCenter(b))
+      peopleEntered, peopleExited = self.enterOrExit(self.tracker.unmatched_tracked)
       now = datetime.now()
+      # device, deviceid, longtitude, latitude, location, time, enter, exit, people in 		building
       m1 = Message("rpi4", 30, 455, 566, "School, Gym", getDateTime(now), peopleEntered, 
       		     peopleExited, 24)
       client.publish("topic1", m1.dictStr())

@@ -21,22 +21,15 @@
 #===========================================================================
 
 import sys 
-import rospy
+import sys 
 import cv2
 import math
 import json 
 from datetime import datetime
 import queue
 import numpy as np
-import sensor_msgs.point_cloud2 as pc2 
-from sensor_msgs.msg import Image
-from sensor_msgs.msg import PointCloud2 
-from std_msgs.msg import String 
-from cv_bridge import CvBridge
-from dynamic_reconfigure.server import Server
-import tf2_ros
-import tf2_py as tf2
-from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
+import paho.mqtt.client as mqtt
+from BlobTracker import BlobTracker
 
 # Max and min depth cutoff  
 max_depth = 0
@@ -60,8 +53,8 @@ learningRateAlpha = .0001
 frame1_blobs = []
     
 # Blob params
-minBlobArea = 50
-minBlobPeri = 50
+minBlobArea = 10
+minBlobPeri = 10
     
 # For weighting the shape / location of blob tracking
 alpha = .7
@@ -107,7 +100,9 @@ def prepare(img, scale):
   #===================================================
 def update_contour(bimg):
   contour, hierarchy = cv2.findContours(bimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-  cv2.drawContours(bimg, contour, -1, (0, 255, 0), 3) 
+  bimg = cv2.cvtColor(bimg, cv2.COLOR_GRAY2RGB)
+  cv2.drawContours(bimg, contour,0, (0, 255, 0), 1) 
+  cv2.imshow('contour', prepare(bimg, 4))
   return contour
 
   #===================================================
@@ -304,16 +299,12 @@ def track(dimg):
   remains = []
   changeInPeople = False
   
-  global frame1_blobs
-  global matchedBlobs
-  global totalEntered
-  global trackedBlobs
-   
+  global tracker
   if dimg is not None:
     blobs = getBlobs(dimg)
     
     tracker.cartNormal = 3.0 
-    tracker.alpha = 0.5  # dial go between shape vs dist matching   
+    tracker.alpha = 0  # dial go between shape vs dist matching   
     
     # Update tracker
     tracker.update(blobs)
@@ -323,20 +314,39 @@ def track(dimg):
       if len(tracker.tracked[i]) > 0:
         # Get the deque
         q = tracker.tracked[i]
+        x = -1
+        y = -1
+        for j in q:
+          cv2.circle(display, (findCenter(j)), 1, (0,0,255), -1)
+          if x > -1 and y > -1:
+            cv2.line(display, findCenter(j), (x, y), (0,0,255), 1)
+          x, y = findCenter(j)
     
   if len(tracker.unmatched_tracked) > 0:
+    print(len(tracker.unmatched_tracked))
+    for j in  tracker.unmatched_tracked:
+      if len(j) ==1:
+        print(findCenter(j))
+      if len(j) ==2:
+        a, b = j
+        print(findCenter(a))
+        print(findCenter(b))
     peopleEntered, peopleExited = enterOrExit(tracker.unmatched_tracked)
-   
-    cv2.imshow("depth", prepare(display, 4))  
-    cv2.waitKey(0)
+
+  cv2.imshow("depth", prepare(display, 4))  
+  cv2.waitKey(0)
     
       
-      
-for i in range(42):
-  path = '/home/ubuntu/Pictures/s'+str(i)+'.jpg'
+# s for first test case
+# ss for second test case   
+# sss for third test case 
+# test for fourth test case
+for i in range(43):
+  path = '/home/ubuntu/Pictures/test'+str(i)+'.jpg'
   im = cv2.imread(path)
+  if i==42:
+    im = np.zeros((60,160,3), np.uint8)
   im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-  track(im)
-
-
+  thresh, binary = cv2.threshold(im, 127, 255, cv2.THRESH_BINARY)
+  track(binary)
 
