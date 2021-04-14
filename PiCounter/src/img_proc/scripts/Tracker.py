@@ -33,6 +33,7 @@ class Tracker(Matcher):
     self.history = history
     self.tracked = [] 
     self.unmatched_tracked = []
+    self.matchedPairs = []
     for i in range(self.maxObjs):
       self.tracked.append(deque([])) 
 
@@ -131,6 +132,7 @@ class Tracker(Matcher):
     # Do the match
     matchedPairs, unmatched_tracked, unmatched_untracked = self.match(tracked, untracked)
     self.unmatched_tracked = unmatched_tracked
+    self.matchedPairs = matchedPairs
 
     # Add matched untracked objects 
     for k in range(len(matchedPairs)): 

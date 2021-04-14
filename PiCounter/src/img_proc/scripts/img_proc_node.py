@@ -20,7 +20,7 @@
 #
 #===========================================================================
 
-import sys 
+import sys , getopt
 import rospy
 import cv2
 import math
@@ -52,26 +52,41 @@ def on_message(client, userdata, msg):
     print("Message received-> " + msg.topic + " " + str(msg.payload))
     
 def getDateTime(now):
-    dt_string = now.strftime("%d/%m/%Y %H:%M%S")
-    return dt_string
+    datetime = now.strftime("%Y/%m/%d %H")
+    time = format(now.strftime("%H"))
+    day = format(now.strftime("%d"))
+    month = format(now.strftime("%m"))
+    year = now.strftime("%Y")
+    weekday = now.strftime("%w")
+    return datetime, time, day, month, year, weekday
+    
+def format(string):
+    if string[0] == "0":
+      return string[1:]
+    return string
 
 client.on_connect = on_connect
 client.on_message = on_message
 
 # uncomment this line!!!
-# client.connect("18.237.68.217")
+client.connect("18.237.68.217")
 
 class Message:
-  def __init__(self, device, deviceid, longitude, latitude, location, time, enter, exit, 			peopleinbuilding):
+  def __init__(self, device, deviceid, longitude, latitude, location, datetime, time, day, month,
+               year, weekday, enter, exit):
     self.device = device
     self.deviceid = deviceid
     self.longitude = longitude
     self.latitude = latitude
     self.location = location
+    self.datetime = datetime
     self.time = time
+    self.day = day
+    self.month = month
+    self.year = year
+    self.weekday = weekday
     self.enter = enter
     self.exit = exit
-    self.peopleinbuilding = peopleinbuilding
 
   def dictStr(self):
     d = {}
@@ -80,10 +95,14 @@ class Message:
     d["longitude"] = self.longitude
     d["latitude"] = self.latitude
     d["location"] = self.location
+    d["datetime"] = self.datetime
     d["time"] = self.time
+    d["day"] = self.day
+    d["month"] = self.month
+    d["year"] = self.year
+    d["weekday"] = self.weekday
     d["enter"] = self.enter
     d["exit"] = self.exit
-    d["peopleinbuilding"] = self.peopleinbuilding
     return json.dumps(d)
 
 #===========================================================================
@@ -129,24 +148,24 @@ class ImgProcNode(object):
     self.br = CvBridge()
     
     # Background subtraction algorithms
-    self.fgbg = cv2.createBackgroundSubtractorMOG2(detectShadows = False)
+    self.fgbg = cv2.createBackgroundSubtractorMOG2(varThreshold = 2, detectShadows = False)
     
     # Background mask
     self.fgmask = None
     self.dimg1 = None
     
-    self.maxDepth = 6200
+    self.maxDepth = 6000
     
     # Background learning params
-    self.learningRateMax = .001
+    self.learningRateMax = .0001
     self.learningRateAlpha = .0001
     
     # previous frame blobs
     self.frame1_blobs = []
     
     # Blob params
-    self.minBlobArea = 400
-    self.minBlobPeri = 100
+    self.minBlobArea = 180
+    self.minBlobPeri = 80
     
     # For weighting the shape / location of blob tracking
     self.alpha = .5
@@ -155,9 +174,9 @@ class ImgProcNode(object):
     self.matchedBlobs = []
     
     # Enter / Exit paramaters
-    self.entering = 10
-    self.exiting = 50
-    self.error = 15
+    self.entering = 20
+    self.exiting = 140
+    self.error = 20
     
     # total number of people who have entered
     self.totalEntered = 0
@@ -165,10 +184,13 @@ class ImgProcNode(object):
     # blob tracker
     self.tracker = BlobTracker()
     
-    self.timer = None
-    self.totalFrames = 0
-    self.done = False
-    self.difference = 0
+    # for counting the number of people in frame
+    self.countInFrame = False
+    self.peopleInFrame = 0
+    
+    # dimensions
+    self.x_dimension = 60
+    self.y_dimension = 160
 
     # Subscribe to camera data 
     rospy.Subscriber('/espros_tof_cam635/camera/image_raw1', Image, self.amp_callback)
@@ -245,21 +267,15 @@ class ImgProcNode(object):
   #===================================================
   #  Get binary image 
   #===================================================
-  def getBinaryImage(self, dimg):
-    if dimg is not None:
-      dimg = cv2.compare(dimg, self.maxDepth, cv2.CMP_LT)
-      
-      # temporary: finding greatest value in dimg after the 
-      # depth cutoff. will use this to find suitable 
-      # cutoff for z
-      
-      self.get_fgnd(dimg)
+  def getBinaryImage(self, aimg):
+    if aimg is not None:
+      self.get_fgnd(aimg)
     return self.fgmask
     
   def getZCutoff(self, zpoints):
     if zpoints is not None:
       # need something between 5 and 10
-      zpoints = cv2.compare(zpoints, 5, cv2.CMP_LT)
+      zpoints = cv2.compare(zpoints, 6.4, cv2.CMP_LT)
     return zpoints  
 
   #===================================================
@@ -322,16 +338,27 @@ class ImgProcNode(object):
   #===================================================
   #  Get current contour
   #===================================================
-  def getBlobs(self, depthFgnd):
+  def getBlobs(self, depthFgnd, dimg):
     contourList = self.update_contour(depthFgnd)
     contours = []
     for cnt in contourList:
       area = cv2.contourArea(cnt)
       length = cv2.arcLength(cnt, True)
+      qualifyDepth = self.qualifyDepth(cnt, dimg)
       if area > self.minBlobArea and length > self.minBlobPeri:
         contours.append(cnt)
-        # print(area, length)
     return contours
+    
+  #===================================================
+  #  Get current contour
+  #===================================================
+  def qualifyDepth(self, contour, dimg):
+    (x, y) = self.findCenter(contour)
+    d_point = self.maxDepth
+    if x < self.x_dimension and y < self.y_dimension: 
+          d_point = dimg[x, y]
+    return d_point < self.maxDepth
+    
   
   #===================================================
   #  Distance score based on normalized distanceScore
@@ -446,9 +473,9 @@ class ImgProcNode(object):
     for (i, blob) in unmatched_tracked:
      x, y = self.findCenter(blob)
      print('blob center', x, y)
-     if abs(y - self.entering) <= self.error:
+     if abs(x - self.entering) <= self.error:
         peopleEntering += 1
-     elif abs(y - self.exiting) <= self.error:
+     elif abs(x - self.exiting) <= self.error:
         peopleExiting += 1
     print('people entering', peopleEntering, 'people exiting', peopleExiting)
     return peopleEntering, peopleExiting
@@ -465,24 +492,8 @@ class ImgProcNode(object):
     changeInPeople = False
     
     
-    depthFgndMask = self.getBinaryImage(dimg)
-    depthFgnd = cv2.bitwise_and(dimg, dimg, mask = depthFgndMask)
-    
-    '''if self.totalFrames ==0 and not self.done:
-      self.timer = datetime.now()
-      self.totalFrames += 1
-      print(self.totalFrames)
-    elif self.done:
-      print(self.difference)
-    elif self.totalFrames == 100:
-      now = datetime.now()
-      self.difference = now - self.timer
-      self.done = True
-      print(self.done)
-    
-    else:
-      self.totalFrames += 1
-      print(self.totalFrames)'''
+    depthFgndMask = self.getBinaryImage(aimg)
+    depthFgnd = cv2.bitwise_and(aimg, aimg, mask = depthFgndMask)
       
    
     if dimg is not None:
@@ -490,10 +501,12 @@ class ImgProcNode(object):
     if aimg is not None:
       cv2.imshow("amplitude", self.prepare(aimg, 4))
       
-    if dimg is not None:
+    if zpoints is not None:
       cv2.imshow("foreground", self.prepare(depthFgnd, 4))
+      display = depthFgndMask.copy()
+      display = cv2.cvtColor(display, cv2.COLOR_GRAY2RGB)
       
-      blobs = self.getBlobs(depthFgndMask)
+      blobs = self.getBlobs(depthFgndMask, dimg)
       
       self.tracker.cartNormal = 3.0 
       self.tracker.alpha = 0.5  # dial go between shape vs dist matching   
@@ -519,10 +532,25 @@ class ImgProcNode(object):
             if x > -1 and y > -1:
               cv2.line(display, self.findCenter(j), (x, y), (0,0,255), 1)
             x, y = self.findCenter(j)
+            
+      cv2.imshow("trail", self.prepare(display, 4))
     
-    if len(self.tracker.unmatched_tracked) > 0:
+    now = datetime.now()
+    # counting the number of people in frame
+    if self.countInFrame:
+      tracked_blobs = len(self.tracker.matchedPairs)
+      if tracked_blobs != self.peopleInFrame:
+        dt, time, day, month, year, weekday = getDateTime(now)
+        m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, time, day, month, year, weekday, 			      tracked_blobs, tracked_blobs)
+        print("people in frame", tracked_blobs)
+        self.peopleInFrame = tracked_blobs
+        print(m1.dictStr())
+        client.publish("topic1", m1.dictStr())
+        
+    # tracking the number of people entering or exiting  
+    elif len(self.tracker.unmatched_tracked) > 0:
       print('number of blobs tracked', len(self.tracker.unmatched_tracked))
-      for j in  tracker.unmatched_tracked:
+      for j in self.tracker.unmatched_tracked:
         if len(j) ==1:
           print(self.findCenter(j))
         if len(j) ==2:
@@ -530,11 +558,16 @@ class ImgProcNode(object):
           print(self.findCenter(a))
           print(self.findCenter(b))
       peopleEntered, peopleExited = self.enterOrExit(self.tracker.unmatched_tracked)
-      now = datetime.now()
       # device, deviceid, longtitude, latitude, location, time, enter, exit, people in 		building
-      m1 = Message("rpi4", 30, 455, 566, "School, Gym", getDateTime(now), peopleEntered, 
-      		     peopleExited, 24)
+      dt, time, day, month, year, weekday = getDateTime(now)
+      m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, time, day, month, year, weekday, 			      peopleEntered, peopleExited)
+      print(m1.dictStr())
       client.publish("topic1", m1.dictStr())
+      
+    elif now.strftime("%H") >= "23" or now.strftime("%H")<7:
+      dt = now.strftime("%a")
+      day = now.strftime("%w")
+      m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, day, day, day, day, 0, 0)
     return
 
   #===================================================

@@ -7,9 +7,11 @@
 
 	<!-- Start web republisher -->
         <!--
+        <arg name="mode"/>
         <node pkg="tf2_web_republisher"
             type="tf2_web_republisher"
             name="tf2_web_republisher"
+            args="$(arg mode)"
             output="screen"
             respawn="false" />
         -->
