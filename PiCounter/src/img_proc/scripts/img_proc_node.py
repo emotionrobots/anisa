@@ -69,7 +69,7 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 # uncomment this line!!!
-client.connect("18.237.68.217")
+client.connect("pplcnt-mqtt.e-motion.ai")
 
 class Message:
   def __init__(self, device, deviceid, longitude, latitude, location, datetime, time, day, month,
@@ -183,10 +183,12 @@ class ImgProcNode(object):
     
     # blob tracker
     self.tracker = BlobTracker()
+    self.enterExit = []
     
     # for counting the number of people in frame
     self.countInFrame = False
     self.peopleInFrame = 0
+    self.newDay = True
     
     # dimensions
     self.x_dimension = 60
@@ -477,7 +479,7 @@ class ImgProcNode(object):
         peopleEntering += 1
      elif abs(x - self.exiting) <= self.error:
         peopleExiting += 1
-    print('people entering', peopleEntering, 'people exiting', peopleExiting)
+    # print('people entering', peopleEntering, 'people exiting', peopleExiting)
     return peopleEntering, peopleExiting
       
   
@@ -491,20 +493,11 @@ class ImgProcNode(object):
     remains = []
     changeInPeople = False
     
-    
     depthFgndMask = self.getBinaryImage(aimg)
-    depthFgnd = cv2.bitwise_and(aimg, aimg, mask = depthFgndMask)
-      
-   
-    if dimg is not None:
-      cv2.imshow("depth", self.prepare(dimg, 4))
-    if aimg is not None:
-      cv2.imshow("amplitude", self.prepare(aimg, 4))
+    depthFgnd = cv2.bitwise_and(aimg, aimg, mask = depthFgndMask) 
       
     if zpoints is not None:
-      cv2.imshow("foreground", self.prepare(depthFgnd, 4))
-      display = depthFgndMask.copy()
-      display = cv2.cvtColor(display, cv2.COLOR_GRAY2RGB)
+      # cv2.imshow("foreground", self.prepare(depthFgnd, 4))
       
       blobs = self.getBlobs(depthFgndMask, dimg)
       
@@ -520,6 +513,10 @@ class ImgProcNode(object):
       # Update tracker
       self.tracker.update(blobs)
       
+      trail = (aimg/16).astype('uint8')
+      trail = cv2.cvtColor(trail, cv2.COLOR_GRAY2RGB)
+      trail = cv2.line(trail,(25,0),(25,60),(255,0,0),1)
+      trail = cv2.line(trail,(135,0),(135,60),(255,0,0),1)
       # Updated result is in tracker.tracked, which is an array of deque
       for i in range(len(self.tracker.tracked)):
         if len(self.tracker.tracked[i]) > 0:
@@ -530,10 +527,10 @@ class ImgProcNode(object):
           # draw trail
           for j in q:
             if x > -1 and y > -1:
-              cv2.line(display, self.findCenter(j), (x, y), (0,0,255), 1)
+              cv2.line(trail, self.findCenter(j), (x, y), (255,0,0), 1)
             x, y = self.findCenter(j)
             
-      cv2.imshow("trail", self.prepare(display, 4))
+      cv2.imshow("trail", self.prepare(trail, 4))
     
     now = datetime.now()
     # counting the number of people in frame
@@ -541,33 +538,35 @@ class ImgProcNode(object):
       tracked_blobs = len(self.tracker.matchedPairs)
       if tracked_blobs != self.peopleInFrame:
         dt, time, day, month, year, weekday = getDateTime(now)
-        m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, time, day, month, year, weekday, 			      tracked_blobs, tracked_blobs)
+        m1 = Message("rpi4", 16, 455, 566, "Store entrance", dt, time, day, month, year, weekday, 			      tracked_blobs, tracked_blobs)
         print("people in frame", tracked_blobs)
         self.peopleInFrame = tracked_blobs
         print(m1.dictStr())
-        client.publish("topic1", m1.dictStr())
+        client.publish("topic1", m1.dictStr());
         
     # tracking the number of people entering or exiting  
-    elif len(self.tracker.unmatched_tracked) > 0:
+   
+    elif self.tracker.change == True:
       print('number of blobs tracked', len(self.tracker.unmatched_tracked))
       for j in self.tracker.unmatched_tracked:
-        if len(j) ==1:
-          print(self.findCenter(j))
-        if len(j) ==2:
-          a, b = j
-          print(self.findCenter(a))
-          print(self.findCenter(b))
-      peopleEntered, peopleExited = self.enterOrExit(self.tracker.unmatched_tracked)
+        # print(self.findCenter(j))
+        pass
+      peopleEntered = self.tracker.currentEnter
+      peopleExited = self.tracker.currentExit
       # device, deviceid, longtitude, latitude, location, time, enter, exit, people in 		building
       dt, time, day, month, year, weekday = getDateTime(now)
-      m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, time, day, month, year, weekday, 			      peopleEntered, peopleExited)
+      m1 = Message("rpi4", 16, 455, 566, "Store entrance", dt, time, day, month, year, weekday, peopleEntered, peopleExited)
       print(m1.dictStr())
-      client.publish("topic1", m1.dictStr())
+      client.publish("topic1", m1.dictStr());
       
-    elif now.strftime("%H") >= "23" or now.strftime("%H")<7:
-      dt = now.strftime("%a")
+    # assuming resetting the counter at 11 pm
+    elif now.strftime("%H") == "23":
+      dt = now.strftime("%A")
       day = now.strftime("%w")
-      m1 = Message("rpi4", 30, 455, 566, "Store entrance", dt, day, day, day, day, 0, 0)
+      m1 = Message("rpi4", 16, 455, 566, "Store entrance", dt, day, day, day, day, day, 0, 0)
+      client.publish("topic1", m1.dictStr());
+      
+    self.tracker.clearCurrent()
     return
 
   #===================================================

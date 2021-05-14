@@ -34,8 +34,21 @@ class Tracker(Matcher):
     self.tracked = [] 
     self.unmatched_tracked = []
     self.matchedPairs = []
+    self.enterExit = []
+    
+    # enter/exit parameters
+    self.entering = 25
+    self.exiting = 135
+    self.error = 5
+    
+    # exit/enter for current frame
+    self.currentEnter = 0
+    self.currentExit = 0
+    self.change = False
+    
     for i in range(self.maxObjs):
       self.tracked.append(deque([])) 
+      self.enterExit.append(deque([]))
 
   #--------------------------------------------------------
   # Scoring function; small value means batter match
@@ -54,7 +67,39 @@ class Tracker(Matcher):
     if len(q) >= self.history:
       q.popleft()
     q.append(object)
-     
+   
+  #--------------------------------------------------------
+  #  Push enter or exit parameter to FIFO 
+  #  0 is exit, 1 is enter
+  #--------------------------------------------------------  
+  def pushEnterExit(self, i, object):
+    q = self.enterExit[i]
+    tempEnter = 0
+    tempExit = 0
+    
+    last = None
+    # return last obj in queue
+    if len(q) > 0:
+      last = q.pop()
+      q.append(last)
+      
+    if last == 1 and object == 0:
+      tempExit += 1
+      print("exit")
+    elif last == 0 and object == 1:
+      tempEnter += 1
+      print("enter")
+    
+    if len(q) > 0:
+      q.popleft()
+      # print("popped")
+    q.append(object)
+    
+    return tempEnter, tempExit
+    
+  def clearCurrent(self):
+    self.currentEnter = 0
+    self.currentExit = 0
      
   #--------------------------------------------------------
   #  Return last object added to tracked
@@ -68,6 +113,7 @@ class Tracker(Matcher):
       q.append(obj)
 
     return obj
+    
     
   #--------------------------------------------------------
   #  Return last two objects added to tracked
@@ -111,9 +157,9 @@ class Tracker(Matcher):
   #  Update tracked objects 
   #--------------------------------------------------------
   def update(self, objects):
-
-    # Prepare the list of current tracked objects
+    self.change = False
     
+    # Prepare the list of current tracked objects
     tracked = []
     for i in range(len(self.tracked)):
       q = self.tracked[i]
@@ -134,21 +180,35 @@ class Tracker(Matcher):
     self.unmatched_tracked = unmatched_tracked
     self.matchedPairs = matchedPairs
 
+    tempEnter = 0
+    tempExit = 0
     # Add matched untracked objects 
     for k in range(len(matchedPairs)): 
       ( (i, _), (_, b) ) = matchedPairs[k]
       self.pushTracked(i, b)
+      x, y = self.getCenter(b)
+      if abs(self.entering - x) <= self.error:
+        tempEnter, tempExit = self.pushEnterExit(i, 1)
+      elif abs(self.exiting - x) <= self.error:
+        tempEnter, tempExit = self.pushEnterExit(i, 0)
+        
+    if tempEnter != self.currentEnter:
+      self.change = True
+      self.currentEnter = tempEnter
+    if tempExit != self.currentExit:
+      self.change = True
+      self.currentExit = tempExit 
          
     # Zero out unmatched tracked object 
     for (i, object) in unmatched_tracked:
       self.tracked[i] = deque([])  
+      self.enterExit[i] = deque([])
 
     # Find empty track to start tracking unmatched untracked objects
     for (_, object) in unmatched_untracked:
       i = self.findUnused()
       if i != -1:
         self.tracked[i].append(object)
-        
   
   #--------------------------------------------------------
   #  Returns contour center as (x, y) tuple
